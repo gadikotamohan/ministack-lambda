@@ -5,26 +5,40 @@ import stat
 
 def handler(event, context):
     try:
-        # Use LAMBDA_TASK_ROOT if available, otherwise current directory
-        root = os.environ.get('LAMBDA_TASK_ROOT', os.getcwd())
-        kubectl_path = os.path.join(root, 'kubectl')
+        # Find the binary relative to this script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        kubectl_path = os.path.join(script_dir, 'kubectl')
         
-        # Log basic info to help debug (will appear in MiniStack/Lambda logs)
+        # Diagnostic logging
+        print(f"Script dir: {script_dir}")
         print(f"Kubectl path: {kubectl_path}")
         print(f"Exists: {os.path.exists(kubectl_path)}")
         
-        # Ensure the binary is executable
-        if os.path.exists(kubectl_path):
+        if not os.path.exists(kubectl_path):
+            print(f"Contents of {script_dir}: {os.listdir(script_dir)}")
+            # Try searching for it in common locations or subdirs
+            found = False
+            for root, dirs, files in os.walk(os.environ.get('LAMBDA_TASK_ROOT', script_dir)):
+                if 'kubectl' in files:
+                    kubectl_path = os.path.join(root, 'kubectl')
+                    print(f"Found kubectl at: {kubectl_path}")
+                    found = True
+                    break
+            if not found:
+                 # Last resort: try just 'kubectl' if it's in PATH
+                 kubectl_path = 'kubectl'
+
+        # Ensure the binary is executable if it's a file path
+        if os.path.isabs(kubectl_path) and os.path.exists(kubectl_path):
             st = os.stat(kubectl_path)
             os.chmod(kubectl_path, st.st_mode | stat.S_IEXEC)
 
         # Execute kubectl version command
-        # --client=true ensures we don't try to connect to a cluster
         result = subprocess.run(
             [kubectl_path, "version", "--client", "-o", "json"],
             capture_output=True,
             text=True,
-            check=False  # Don't throw error automatically to capture output
+            check=False
         )
         
         if result.returncode != 0:
@@ -35,7 +49,9 @@ def handler(event, context):
                     "error": "kubectl execution failed",
                     "returncode": result.returncode,
                     "stdout": result.stdout,
-                    "stderr": result.stderr
+                    "stderr": result.stderr,
+                    "path": kubectl_path,
+                    "exists": os.path.exists(kubectl_path) if os.path.isabs(kubectl_path) else "N/A"
                 })
             }
 
@@ -52,6 +68,8 @@ def handler(event, context):
             "headers": {"Content-Type": "application/json"},
             "body": json.dumps({
                 "error": str(e),
-                "trace": str(type(e))
+                "trace": str(type(e)),
+                "dir_contents": os.listdir(os.getcwd()) if os.path.exists(os.getcwd()) else "N/A",
+                "script_dir": os.path.dirname(os.path.abspath(__file__))
             })
         }
