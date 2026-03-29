@@ -1,0 +1,60 @@
+name: Deploy Kubectl Lambda to LocalStack
+
+on: [push]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: lambda,iam,sts
+          DEBUG: 1
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+
+      - name: Download kubectl
+        run: |
+          KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+          echo "Downloading kubectl version ${KUBECTL_VERSION}"
+          
+          # Download binary
+          curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          
+          # Download checksum
+          curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256"
+          
+          # Verify checksum
+          echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+          
+          chmod +x kubectl
+
+      - name: Package Lambda function
+        run: |
+          zip lambda_function_payload.zip handler.py kubectl
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+
+      - name: Test Lambda Function URL
+        run: |
+          URL=$(terraform output -raw function_url)
+          # We need to replace localhost with the localstack container address if we were running in a different container,
+          # but here we're running in the host network relative to the services, so localhost should work.
+          echo "Testing Lambda URL: $URL"
+          # Wait for LocalStack to be fully ready
+          sleep 10
+          curl -s "$URL" | jq .
