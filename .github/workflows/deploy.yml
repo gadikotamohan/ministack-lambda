@@ -58,40 +58,33 @@ jobs:
           aws --endpoint-url=http://localhost:4566 lambda list-functions
           
           echo "Invoking Lambda via CLI..."
+          # This confirms the function works and kubectl is found
           aws --endpoint-url=http://localhost:4566 lambda invoke --function-name kubectl-version-lambda response.json
-          cat response.json
+          cat response.json | jq .
           
           URL=$(terraform output -raw function_url)
-          echo "Testing Lambda URL: $URL"
-          
-          # Try calling the URL directly (might fail if host not recognized)
-          # And try calling localhost:4566 with the correct Host header if needed,
-          # but usually these emulators expect us to call localhost:4566 directly for the URL if they don't do DNS magic.
+          echo "Original Lambda URL: $URL"
           
           # Extract the ID from the URL: https://<id>.lambda-url.us-east-1.on.aws/
           URL_ID=$(echo "$URL" | grep -oE '[a-z0-9-]+\.lambda-url' | cut -d. -f1)
           echo "URL ID: $URL_ID"
           
+          # MiniStack requires .localhost suffix in Host header for routing
+          MINISTACK_HOST="$URL_ID.lambda-url.localhost"
+          echo "Using MiniStack Host: $MINISTACK_HOST"
+          
           for i in {1..5}; do
             echo "Attempt $i..."
-            # Try both the original URL and a localhost-mapped one
-            # LocalStack/MiniStack often map <id>.lambda-url.localhost.localstack.cloud:4566 or similar
-            RESPONSE=$(curl -s "$URL")
-            echo "Direct URL Response: $RESPONSE"
+            # Call MiniStack gateway with the specific Host header it expects
+            RESPONSE=$(curl -s -H "Host: $MINISTACK_HOST" http://localhost:4566)
             
-            # Alternative: call localhost:4566 and let MiniStack route it
-            # Some emulators use the Host header to route Function URLs
-            HOST_RESPONSE=$(curl -s -H "Host: $URL_ID.lambda-url.us-east-1.on.aws" http://localhost:4566)
-            echo "Host Header Response: $HOST_RESPONSE"
-            
-            if [[ "$RESPONSE" != '{"Message":null}' && "$RESPONSE" != "" ]]; then
+            if [ -n "$RESPONSE" ] && [ "$RESPONSE" != '{"Message":null}' ] && [ "$RESPONSE" != '{"Message": null}' ]; then
+               echo "Success!"
                echo "$RESPONSE" | jq .
                exit 0
             fi
-            if [[ "$HOST_RESPONSE" != '{"Message":null}' && "$HOST_RESPONSE" != "" ]]; then
-               echo "$HOST_RESPONSE" | jq .
-               exit 0
-            fi
+            echo "Response: $RESPONSE"
             sleep 10
           done
+          echo "Failed to get valid response from Function URL"
           exit 1
