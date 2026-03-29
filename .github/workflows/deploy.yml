@@ -48,20 +48,50 @@ jobs:
       - name: Terraform Apply
         run: terraform apply -auto-approve
 
-      - name: Test Lambda Function URL
+      - name: Diagnostics and Test
         run: |
+          export AWS_ACCESS_KEY_ID=test
+          export AWS_SECRET_ACCESS_KEY=test
+          export AWS_DEFAULT_REGION=us-east-1
+          
+          echo "Listing Lambda Functions..."
+          aws --endpoint-url=http://localhost:4566 lambda list-functions
+          
+          echo "Invoking Lambda via CLI..."
+          aws --endpoint-url=http://localhost:4566 lambda invoke --function-name kubectl-version-lambda response.json
+          cat response.json
+          
           URL=$(terraform output -raw function_url)
           echo "Testing Lambda URL: $URL"
-          # Wait for MiniStack and Lambda to be ready
+          
+          # Try calling the URL directly (might fail if host not recognized)
+          # And try calling localhost:4566 with the correct Host header if needed,
+          # but usually these emulators expect us to call localhost:4566 directly for the URL if they don't do DNS magic.
+          
+          # Extract the ID from the URL: https://<id>.lambda-url.us-east-1.on.aws/
+          URL_ID=$(echo "$URL" | grep -oE '[a-z0-9-]+\.lambda-url' | cut -d. -f1)
+          echo "URL ID: $URL_ID"
+          
           for i in {1..5}; do
+            echo "Attempt $i..."
+            # Try both the original URL and a localhost-mapped one
+            # LocalStack/MiniStack often map <id>.lambda-url.localhost.localstack.cloud:4566 or similar
             RESPONSE=$(curl -s "$URL")
-            echo "Attempt $i: $RESPONSE"
-            # Check if response is not null and not the empty Message null
-            if [ -n "$RESPONSE" ] && [ "$RESPONSE" != '{"Message":null}' ] && [ "$RESPONSE" != '{"Message": null}' ]; then
-              echo "$RESPONSE" | jq .
-              exit 0
+            echo "Direct URL Response: $RESPONSE"
+            
+            # Alternative: call localhost:4566 and let MiniStack route it
+            # Some emulators use the Host header to route Function URLs
+            HOST_RESPONSE=$(curl -s -H "Host: $URL_ID.lambda-url.us-east-1.on.aws" http://localhost:4566)
+            echo "Host Header Response: $HOST_RESPONSE"
+            
+            if [[ "$RESPONSE" != '{"Message":null}' && "$RESPONSE" != "" ]]; then
+               echo "$RESPONSE" | jq .
+               exit 0
+            fi
+            if [[ "$HOST_RESPONSE" != '{"Message":null}' && "$HOST_RESPONSE" != "" ]]; then
+               echo "$HOST_RESPONSE" | jq .
+               exit 0
             fi
             sleep 10
           done
-          echo "Lambda failed to return version in time or returned null"
           exit 1
