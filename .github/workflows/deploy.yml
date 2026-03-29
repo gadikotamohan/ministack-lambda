@@ -1,4 +1,4 @@
-name: Deploy Kubectl Lambda to LocalStack
+name: Deploy Kubectl Lambda to MiniStack
 
 on: [push]
 
@@ -6,13 +6,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     services:
-      localstack:
-        image: localstack/localstack:latest
+      ministack:
+        image: nahuelnucera/ministack
         ports:
           - 4566:4566
         env:
-          SERVICES: lambda,iam,sts
-          DEBUG: 1
+          LOG_LEVEL: INFO
 
     steps:
       - name: Checkout code
@@ -23,7 +22,7 @@ jobs:
         with:
           terraform_version: "1.5.0"
 
-      - name: Download kubectl
+      - name: Download and Verify kubectl
         run: |
           KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
           echo "Downloading kubectl version ${KUBECTL_VERSION}"
@@ -52,9 +51,7 @@ jobs:
       - name: Test Lambda Function URL
         run: |
           URL=$(terraform output -raw function_url)
-          # We need to replace localhost with the localstack container address if we were running in a different container,
-          # but here we're running in the host network relative to the services, so localhost should work.
           echo "Testing Lambda URL: $URL"
-          # Wait for LocalStack to be fully ready
+          # Wait for MiniStack to be fully ready and process the deployment
           sleep 10
           curl -s "$URL" | jq .
