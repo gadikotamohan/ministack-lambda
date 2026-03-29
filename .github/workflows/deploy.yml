@@ -52,6 +52,16 @@ jobs:
         run: |
           URL=$(terraform output -raw function_url)
           echo "Testing Lambda URL: $URL"
-          # Wait for MiniStack to be fully ready and process the deployment
-          sleep 10
-          curl -s "$URL" | jq .
+          # Wait for MiniStack and Lambda to be ready
+          for i in {1..5}; do
+            RESPONSE=$(curl -s "$URL")
+            echo "Attempt $i: $RESPONSE"
+            # Check if response is not null and not the empty Message null
+            if [ -n "$RESPONSE" ] && [ "$RESPONSE" != '{"Message":null}' ] && [ "$RESPONSE" != '{"Message": null}' ]; then
+              echo "$RESPONSE" | jq .
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Lambda failed to return version in time or returned null"
+          exit 1
