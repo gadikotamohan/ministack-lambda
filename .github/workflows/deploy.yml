@@ -69,25 +69,37 @@ jobs:
           URL_ID=$(echo "$REAL_URL" | sed -e 's|^[^/]*//||' -e 's/\..*//')
           echo "Real URL ID: $URL_ID"
           
-          # Try variations including the port in the Host header
+          # Try variations including the port and different ID sources
           FORMATS=(
             "$URL_ID.lambda-url.localhost"
             "$URL_ID.lambda-url.localhost:4566"
             "kubectl-version-lambda.lambda-url.localhost"
             "kubectl-version-lambda.lambda-url.localhost:4566"
+            "kubectl-version-lambda.localhost"
+            "kubectl-version-lambda.localhost:4566"
           )
           
           for i in {1..5}; do
             echo "Attempt $i..."
+            
+            # Diagnostic: Try calling the function via its internal MiniStack path if known
+            # MiniStack sometimes exposes services at /2015-03-31/functions/...
+            echo "Testing Direct API Invoke path..."
+            curl -s -X POST "http://localhost:4566/2015-03-31/functions/kubectl-version-lambda/invocations" -d '{}' | jq . || echo "Direct path failed"
+
             for HOST in "${FORMATS[@]}"; do
               echo "Testing Host: $HOST"
               RESPONSE=$(curl -s -H "Host: $HOST" http://localhost:4566)
-              # ... rest of loop
               echo "Response for $HOST: $RESPONSE"
               
-              # Check if response looks like the expected JSON (starts with { and contains clientVersion)
               if [[ "$RESPONSE" == *"clientVersion"* ]]; then
                  echo "Success with Host: $HOST"
+                 echo "$RESPONSE" | jq .
+                 exit 0
+              fi
+            done
+            sleep 10
+          done
                  echo "$RESPONSE" | jq .
                  exit 0
               fi
