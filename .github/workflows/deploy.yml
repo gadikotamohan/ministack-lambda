@@ -78,12 +78,13 @@ jobs:
             # Call MiniStack gateway with the specific Host header it expects
             RESPONSE=$(curl -s -H "Host: $MINISTACK_HOST" http://localhost:4566)
             
+            echo "RAW RESPONSE: $RESPONSE"
+            
             if [ -n "$RESPONSE" ] && [ "$RESPONSE" != '{"Message":null}' ] && [ "$RESPONSE" != '{"Message": null}' ]; then
                echo "Success!"
                echo "$RESPONSE" | jq .
                exit 0
             fi
-            echo "Response: $RESPONSE"
             sleep 10
           done
           echo "Failed to get valid response from Function URL"
