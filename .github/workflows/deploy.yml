@@ -57,35 +57,42 @@ jobs:
           echo "Listing Lambda Functions..."
           aws --endpoint-url=http://localhost:4566 lambda list-functions
           
+          echo "Inspecting Function URL Config..."
+          aws --endpoint-url=http://localhost:4566 lambda get-function-url-config --function-name kubectl-version-lambda || echo "URL config not found via CLI"
+          
           echo "Invoking Lambda via CLI..."
-          # This confirms the function works and kubectl is found
           aws --endpoint-url=http://localhost:4566 lambda invoke --function-name kubectl-version-lambda response.json
           cat response.json | jq .
           
           URL=$(terraform output -raw function_url)
-          echo "Original Lambda URL: $URL"
+          echo "Terraform-provided URL: $URL"
           
-          # Extract the ID from the URL: https://<id>.lambda-url.us-east-1.on.aws/
           URL_ID=$(echo "$URL" | grep -oE '[a-z0-9-]+\.lambda-url' | cut -d. -f1)
-          echo "URL ID: $URL_ID"
+          echo "Extracted URL ID: $URL_ID"
           
-          # MiniStack requires .localhost suffix in Host header for routing
-          MINISTACK_HOST="$URL_ID.lambda-url.localhost"
-          echo "Using MiniStack Host: $MINISTACK_HOST"
+          # We will try multiple Host header formats that MiniStack might expect
+          FORMATS=(
+            "$URL_ID.lambda-url.us-east-1.on.aws"
+            "$URL_ID.lambda-url.localhost"
+            "$URL_ID.lambda-url.us-east-1.localhost"
+            "kubectl-version-lambda.lambda-url.localhost"
+          )
           
           for i in {1..5}; do
             echo "Attempt $i..."
-            # Call MiniStack gateway with the specific Host header it expects
-            RESPONSE=$(curl -s -H "Host: $MINISTACK_HOST" http://localhost:4566)
-            
-            echo "RAW RESPONSE: $RESPONSE"
-            
-            if [ -n "$RESPONSE" ] && [ "$RESPONSE" != '{"Message":null}' ] && [ "$RESPONSE" != '{"Message": null}' ]; then
-               echo "Success!"
-               echo "$RESPONSE" | jq .
-               exit 0
-            fi
+            for HOST in "${FORMATS[@]}"; do
+              echo "Testing Host: $HOST"
+              RESPONSE=$(curl -s -H "Host: $HOST" http://localhost:4566)
+              echo "Response for $HOST: $RESPONSE"
+              
+              # Check if response looks like the expected JSON (starts with { and contains clientVersion)
+              if [[ "$RESPONSE" == *"clientVersion"* ]]; then
+                 echo "Success with Host: $HOST"
+                 echo "$RESPONSE" | jq .
+                 exit 0
+              fi
+            done
             sleep 10
           done
-          echo "Failed to get valid response from Function URL"
+          echo "Failed to find a working Host header for Function URL"
           exit 1
