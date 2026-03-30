@@ -67,8 +67,8 @@ jobs:
           FORMATS=(
             "$URL_ID.lambda-url.localhost"
             "$URL_ID.lambda-url.localhost:4566"
-            "http://$URL_ID.lambda-url.localhost.localstack.cloud"
-            "http://$URL_ID.lambda-url.localhost.localstack.cloud:4566"
+            "$URL_ID.lambda-url.localhost.localstack.cloud"
+            "$URL_ID.lambda-url.localhost.localstack.cloud:4566"
           )
           
           for i in {1..5}; do
@@ -85,7 +85,8 @@ jobs:
             # 2. Test Function URL routing
             for HOST in "${FORMATS[@]}"; do
               echo "Testing Function URL Host: $HOST"
-              RESPONSE=$(curl -v -s $HOST)
+              RESPONSE=$(curl -v -s -H "Host: $HOST" http://localhost:4566)
+              echo $RESPONSE
               if [[ "$RESPONSE" == *"clientVersion"* ]]; then
                  echo "Function URL routing success with Host: $HOST"
                  echo "$RESPONSE" | jq .
