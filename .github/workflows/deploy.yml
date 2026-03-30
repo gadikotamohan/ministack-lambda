@@ -86,6 +86,7 @@ jobs:
             for HOST in "${FORMATS[@]}"; do
               echo "Testing Function URL Host: $HOST"
               RESPONSE=$(curl -s $HOST)
+              echo $RESPONSE
               if [[ "$RESPONSE" == *"clientVersion"* ]]; then
                  echo "Function URL routing success with Host: $HOST"
                  echo "$RESPONSE" | jq .
