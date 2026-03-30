@@ -58,24 +58,23 @@ jobs:
           aws --endpoint-url=http://localhost:4566 lambda list-functions
           
           echo "Inspecting Function URL Config..."
-          aws --endpoint-url=http://localhost:4566 lambda get-function-url-config --function-name kubectl-version-lambda || echo "URL config not found via CLI"
+          # This is the most important diagnostic to see what MiniStack thinks the URL is
+          aws --endpoint-url=http://localhost:4566 lambda get-function-url-config --function-name kubectl-version-lambda > url_config.json
+          cat url_config.json
           
-          echo "Invoking Lambda via CLI..."
-          aws --endpoint-url=http://localhost:4566 lambda invoke --function-name kubectl-version-lambda response.json
-          cat response.json | jq .
+          # Extract the URL from the config itself
+          REAL_URL=$(jq -r '.FunctionUrl' url_config.json)
+          echo "Real MiniStack URL: $REAL_URL"
           
-          URL=$(terraform output -raw function_url)
-          echo "Terraform-provided URL: $URL"
+          URL_ID=$(echo "$REAL_URL" | sed -e 's|^[^/]*//||' -e 's/\..*//')
+          echo "Real URL ID: $URL_ID"
           
-          URL_ID=$(echo "$URL" | grep -oE '[a-z0-9-]+\.lambda-url' | cut -d. -f1)
-          echo "Extracted URL ID: $URL_ID"
-          
-          # We will try multiple Host header formats that MiniStack might expect
+          # Try variations including the port in the Host header
           FORMATS=(
-            "$URL_ID.lambda-url.us-east-1.on.aws"
             "$URL_ID.lambda-url.localhost"
-            "$URL_ID.lambda-url.us-east-1.localhost"
+            "$URL_ID.lambda-url.localhost:4566"
             "kubectl-version-lambda.lambda-url.localhost"
+            "kubectl-version-lambda.lambda-url.localhost:4566"
           )
           
           for i in {1..5}; do
@@ -83,6 +82,7 @@ jobs:
             for HOST in "${FORMATS[@]}"; do
               echo "Testing Host: $HOST"
               RESPONSE=$(curl -s -H "Host: $HOST" http://localhost:4566)
+              # ... rest of loop
               echo "Response for $HOST: $RESPONSE"
               
               # Check if response looks like the expected JSON (starts with { and contains clientVersion)
