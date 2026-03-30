@@ -85,7 +85,7 @@ jobs:
             # 2. Test Function URL routing
             for HOST in "${FORMATS[@]}"; do
               echo "Testing Function URL Host: $HOST"
-              RESPONSE=$(curl -s -H "Host: $HOST" http://localhost:4566)
+              RESPONSE=$(curl -s $HOST)
               if [[ "$RESPONSE" == *"clientVersion"* ]]; then
                  echo "Function URL routing success with Host: $HOST"
                  echo "$RESPONSE" | jq .
